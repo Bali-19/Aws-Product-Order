@@ -37,7 +37,7 @@ public class OrderController {
     }
 
     @GetMapping("/{id}")
-    public OrderDto findById(@PathVariable Long id) {
+    public OrderDto findById(@PathVariable("id") Long id) {
         Orders order = orderService.findById(id);
         return orderConverter.toDto(order);
     }

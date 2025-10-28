@@ -32,7 +32,7 @@ public class ProductController {
     }
 
     @GetMapping("/{id}")
-    public ProductDto getById(@PathVariable Long id) {
+    public ProductDto getById(@PathVariable("id") Long id) {
         Product product = productService.findById(id);
         return productConverter.toDto(product);
     }
