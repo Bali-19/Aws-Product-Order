@@ -44,12 +44,12 @@ jobs:
       - name: Update Dockerrun Image URI
         run: |
           sed -i "s|<REPLACE_ME>|${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPO_NAME }}:latest|g" \
-            cdk/eb-dockerrun/Dockerrun.aws.json
+            cdk-beanstalk/eb-dockerrun/Dockerrun.aws.json
 
       - name: Install CDK
         run: npm install -g aws-cdk
 
       - name: Deploy CDK
         run: |
-          cd cdk
+          cd cdk-beanstalk
           cdk deploy --require-approval never
