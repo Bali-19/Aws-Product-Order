@@ -46,8 +46,13 @@ jobs:
           sed -i "s|<REPLACE_ME>|${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPO_NAME }}:latest|g" \
             cdk-beanstalk/eb-dockerrun/Dockerrun.aws.json
 
-      - name: Install CDK
+      - name: Install CDK CLI
         run: npm install -g aws-cdk
+
+      - name: Install CDK libs
+        run: |
+          cd cdk-beanstalk
+          npm install
 
       - name: Deploy CDK
         run: |
