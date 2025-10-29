@@ -8,11 +8,11 @@ jobs:
   build-deploy:
     runs-on: ubuntu-latest
 
-    # ✅ REGION + CREDENTIALS AVAILABLE FOR ALL STEPS
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_REGION: ${{ secrets.AWS_REGION }}
+      ECR_REPO: ${{ secrets.ECR_REPO_NAME }}
 
     steps:
       - uses: actions/checkout@v3
@@ -35,18 +35,16 @@ jobs:
       - name: Build & Push Docker
         run: |
           cd Backend
-          docker build -t ${{ secrets.ECR_REPO_NAME }} .
-          docker tag ${{ secrets.ECR_REPO_NAME }}:latest \
-            ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPO_NAME }}:latest
-          docker push \
-            ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPO_NAME }}:latest
+          docker build -t $ECR_REPO .
+          docker tag $ECR_REPO:latest ${{ secrets.ECR_REGISTRY }}/$ECR_REPO:latest
+          docker push ${{ secrets.ECR_REGISTRY }}/$ECR_REPO:latest
 
-      - name: Update Dockerrun Image URI
+      - name: Update Dockerrun
         run: |
-          sed -i "s|<REPLACE_ME>|${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPO_NAME }}:latest|g" \
-            cdk-beanstalk/eb-dockerrun/Dockerrun.aws.json
+          sed -i "s|<REPLACE_ME>|${{ secrets.ECR_REGISTRY }}/$ECR_REPO:latest|g" \
+            eb-dockerrun/Dockerrun.aws.json
 
-      - name: Install CDK CLI
+      - name: Install CDK
         run: npm install -g aws-cdk
 
       - name: Install CDK libs
@@ -54,7 +52,7 @@ jobs:
           cd cdk-beanstalk
           npm install
 
-      - name: Deploy CDK
+      - name: Deploy
         run: |
           cd cdk-beanstalk
           cdk deploy --require-approval never
