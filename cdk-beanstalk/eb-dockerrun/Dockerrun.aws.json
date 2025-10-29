@@ -1,13 +1,12 @@
 {
-  "AWSEBDockerrunVersion": 2,
-  "containerDefinitions": [
+  "AWSEBDockerrunVersion": 1,
+  "Image": {
+    "Name": "<REPLACE_ME>",
+    "Update": true
+  },
+  "Ports": [
     {
-      "name": "app",
-      "image": "<REPLACE_ME>",
-      "essential": true,
-      "portMappings": [
-        { "containerPort": 8080 }
-      ]
+      "ContainerPort": 8080
     }
   ]
 }
