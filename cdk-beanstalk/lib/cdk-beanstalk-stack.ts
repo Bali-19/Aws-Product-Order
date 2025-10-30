@@ -57,7 +57,7 @@ export class CdkBeanstalkStack extends cdk.Stack {
     /* ---------------------------------- RDS ---------------------------------- */
     const db = new rds.DatabaseInstance(this, "AppRds", {
       engine: rds.DatabaseInstanceEngine.mysql({
-        version: rds.MysqlEngineVersion.VER_8_0_36,
+        version: rds.MysqlEngineVersion.of("8.4.6", "8.4")
       }),
       vpc,
       vpcSubnets: { subnets: dbSubnets }, // isolated
