@@ -78,6 +78,8 @@ export class CdkBeanstalkStack extends cdk.Stack {
       description: `Build ${stamp}`,
     });
 
+    appVersion.addDependency(app);
+
     /* -------------------- EB ENV -------------------- */
     const env = new elasticbeanstalk.CfnEnvironment(this, "Environment", {
       environmentName: envName,
