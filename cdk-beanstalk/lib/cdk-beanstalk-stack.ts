@@ -99,7 +99,6 @@ export class CdkBeanstalkStack extends cdk.Stack {
       applicationName: appName,
     });
 
-    // Dockerrun bundle (make sure this path is correct relative to cdk-beanstalk/)
     const dockerrunAsset = new s3assets.Asset(this, "DockerrunAsset", {
       path: "../eb-dockerrun", // contains Dockerrun.aws.json (v1)
     });
