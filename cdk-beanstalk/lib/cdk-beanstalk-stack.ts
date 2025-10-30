@@ -60,7 +60,7 @@ export class CdkBeanstalkStack extends cdk.Stack {
         version: rds.MysqlEngineVersion.of("8.4.6", "8.4")
       }),
       vpc,
-      vpcSubnets: { subnets: dbSubnets }, // isolated
+      vpcSubnets: { subnets: dbSubnets },
       securityGroups: [dbSg],
       credentials: rds.Credentials.fromSecret(dbSecret),
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),

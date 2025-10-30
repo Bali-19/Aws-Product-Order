@@ -9,14 +9,16 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
       ECR_REPO: ${{ secrets.ECR_REPO_NAME }}
 
     steps:
       - uses: actions/checkout@v3
 
+      # -----------------------------
+      # Install Java & Build JAR
+      # -----------------------------
       - name: Setup Java
         uses: actions/setup-java@v3
         with:
@@ -29,6 +31,9 @@ jobs:
           mvn clean package -DskipTests
           cp target/*.jar app.jar
 
+      # -----------------------------
+      # Docker Build + Push → ECR
+      # -----------------------------
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
@@ -39,11 +44,32 @@ jobs:
           docker tag $ECR_REPO:latest ${{ secrets.ECR_REGISTRY }}/$ECR_REPO:latest
           docker push ${{ secrets.ECR_REGISTRY }}/$ECR_REPO:latest
 
-      - name: Update Dockerrun
+      # -----------------------------
+      # Generate fresh Dockerrun
+      # -----------------------------
+      - name: Generate Dockerrun.aws.json
         run: |
-          sed -i "s|<REPLACE_ME>|${{ secrets.ECR_REGISTRY }}/$ECR_REPO:latest|g" \
-            eb-dockerrun/Dockerrun.aws.json
+          mkdir -p eb-dockerrun
+          cat > eb-dockerrun/Dockerrun.aws.json <<EOF
+          {
+            "AWSEBDockerrunVersion": 1,
+            "Image": {
+              "Name": "${{ secrets.ECR_REGISTRY }}/$ECR_REPO:latest",
+              "Update": true
+            },
+            "Ports": [
+              {
+                "ContainerPort": 8080
+              }
+            ]
+          }
+          EOF
+          echo "Generated Dockerrun:"
+          cat eb-dockerrun/Dockerrun.aws.json
 
+      # -----------------------------
+      # CDK Deployment
+      # -----------------------------
       - name: Install CDK
         run: npm install -g aws-cdk
 
@@ -52,7 +78,7 @@ jobs:
           cd cdk-beanstalk
           npm install
 
-      - name: Deploy
+      - name: Deploy CDK
         run: |
           cd cdk-beanstalk
           cdk deploy --require-approval never
