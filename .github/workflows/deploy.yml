@@ -25,12 +25,13 @@ jobs:
         run: |
           cd Backend
           mvn clean package -DskipTests
-          cp target/*.jar ../app.jar
+          cp target/*.jar application.jar
 
       - name: Create zip bundle
         run: |
-          zip app-bundle.zip app.jar
-          ls -lah
+          cd Backend
+          zip ../app-bundle.zip application.jar
+          ls -lah ../
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
