@@ -121,7 +121,7 @@ export class CdkBeanstalkStack extends cdk.Stack {
           value: vpc.publicSubnets.map(s => s.subnetId).join(",")
         },
         {
-          namespace: "aws:autoscaling:launchconfiguration",
+          namespace: "aws:ec2:vpc",
           optionName: "SecurityGroups",
           value: ebSG.securityGroupId
         },
