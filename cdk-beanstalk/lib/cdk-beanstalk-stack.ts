@@ -17,7 +17,6 @@ export class CdkBeanstalkStack extends cdk.Stack {
     /* ---------------------- VPC ---------------------- */
     const vpc = new ec2.Vpc(this, "Vpc", {
       maxAzs: 2,
-      natGateways: 1,
       subnetConfiguration: [
         { name: "public", subnetType: ec2.SubnetType.PUBLIC },
         { name: "app", subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
@@ -85,7 +84,7 @@ export class CdkBeanstalkStack extends cdk.Stack {
       environmentName: envName,
       applicationName: appName,
       solutionStackName:
-          "64bit Amazon Linux 2 v4.3.6 running Corretto 17",  // ✅ Java 17
+          "64bit Amazon Linux 2023 v4.7.0 running Corretto 17",  // ✅ Java 17
       versionLabel: appVersion.ref,
       optionSettings: [
         { namespace: "aws:ec2:vpc", optionName: "VPCId", value: vpc.vpcId },
