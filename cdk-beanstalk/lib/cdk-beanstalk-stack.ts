@@ -5,7 +5,7 @@ import * as s3assets from "aws-cdk-lib/aws-s3-assets";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as rds from "aws-cdk-lib/aws-rds";
 import * as secretsmgr from "aws-cdk-lib/aws-secretsmanager";
-
+import * as iam from "aws-cdk-lib/aws-iam"
 export class CdkBeanstalkStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
@@ -77,32 +77,62 @@ export class CdkBeanstalkStack extends cdk.Stack {
     });
     appVersion.addDependency(app);
 
-    // EB Environment (Java 17 على AL2023)
+    /* ---------------- IAM Role + Instance Profile ---------------- */
+    const ebEc2Role = new iam.Role(this, "EbEc2Role", {
+      assumedBy: new iam.ServicePrincipal("ec2.amazonaws.com"),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName(
+            "AWSElasticBeanstalkWebTier"
+        ),
+        iam.ManagedPolicy.fromAwsManagedPolicyName(
+            "AmazonSSMManagedInstanceCore"
+        )
+      ],
+    });
+
+    const ebInstanceProfile = new iam.CfnInstanceProfile(this, "EbInstanceProfile", {
+      roles: [ebEc2Role.roleName],
+    });
+
     const env = new elasticbeanstalk.CfnEnvironment(this, "Environment", {
       environmentName: envName,
       applicationName: appName,
       solutionStackName: "64bit Amazon Linux 2023 v4.7.0 running Corretto 17",
       versionLabel: appVersion.ref,
       optionSettings: [
-        // الشبكة: الـ ALB والـ EC2 على public عشان مفيش NAT
-        { namespace: "aws:ec2:vpc", optionName: "VPCId", value: vpc.vpcId },
-        { namespace: "aws:ec2:vpc", optionName: "ELBSubnets", value: vpc.publicSubnets.map(s => s.subnetId).join(",") },
-        { namespace: "aws:ec2:vpc", optionName: "Subnets", value: vpc.publicSubnets.map(s => s.subnetId).join(",") },
-        { namespace: "aws:autoscaling:launchconfiguration", optionName: "SecurityGroups", value: ebSG.securityGroupId },
-        { namespace: "aws:autoscaling:launchconfiguration", optionName: "InstanceType", value: "t3.micro" },
-
-        // بيئة التشغيل للتطبيق + البورت 5000
-        { namespace: "aws:elasticbeanstalk:application:environment", optionName: "SERVER_PORT", value: "5000" },
-        { namespace: "aws:elasticbeanstalk:application:environment", optionName: "DB_HOST", value: db.dbInstanceEndpointAddress },
-        { namespace: "aws:elasticbeanstalk:application:environment", optionName: "DB_PORT", value: db.dbInstanceEndpointPort },
-        { namespace: "aws:elasticbeanstalk:application:environment", optionName: "DB_NAME", value: "productorderdb" },
-        { namespace: "aws:elasticbeanstalk:application:environment", optionName: "DB_USER", value: dbSecret.secretValueFromJson("username").unsafeUnwrap() },
-        { namespace: "aws:elasticbeanstalk:application:environment", optionName: "DB_PASS", value: dbSecret.secretValueFromJson("password").unsafeUnwrap() },
-
-        // صحّة محسّنة
-        { namespace: "aws:elasticbeanstalk:healthreporting:system", optionName: "SystemType", value: "enhanced" },
+        {
+          namespace: "aws:autoscaling:launchconfiguration",
+          optionName: "IamInstanceProfile",
+          value: ebInstanceProfile.ref
+        },
+        {
+          namespace: "aws:ec2:vpc",
+          optionName: "VPCId",
+          value: vpc.vpcId
+        },
+        {
+          namespace: "aws:ec2:vpc",
+          optionName: "Subnets",
+          value: vpc.privateSubnets.map(s => s.subnetId).join(",")
+        },
+        {
+          namespace: "aws:ec2:vpc",
+          optionName: "ELBSubnets",
+          value: vpc.publicSubnets.map(s => s.subnetId).join(",")
+        },
+        {
+          namespace: "aws:autoscaling:launchconfiguration",
+          optionName: "SecurityGroups",
+          value: ebSG.securityGroupId
+        },
+        {
+          namespace: "aws:autoscaling:launchconfiguration",
+          optionName: "InstanceType",
+          value: "t3.micro"
+        },
       ],
     });
+
     env.addDependency(appVersion);
 
     new cdk.CfnOutput(this, "EbUrl", { value: env.attrEndpointUrl });
