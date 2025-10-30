@@ -138,20 +138,18 @@ export class CdkBeanstalkStack extends cdk.Stack {
         {
           namespace: "aws:elasticbeanstalk:application:environment",
           optionName: "DB_USER",
-          value: dbSecret.secretValueFromJson("username").unsafeUnwrap(), // <— plain string
+          value: dbSecret.secretValueFromJson("username").unsafeUnwrap(),
         },
         {
           namespace: "aws:elasticbeanstalk:application:environment",
           optionName: "DB_PASS",
-          value: dbSecret.secretValueFromJson("password").unsafeUnwrap(), // <— plain string
+          value: dbSecret.secretValueFromJson("password").unsafeUnwrap(),
         },
 
-        // Optional: health report enhanced
         { namespace: "aws:elasticbeanstalk:healthreporting:system", optionName: "SystemType", value: "enhanced" },
       ],
     });
 
-    /* --------------------------------- Outputs --------------------------------- */
     new cdk.CfnOutput(this, "EbUrl", { value: env.attrEndpointUrl });
     new cdk.CfnOutput(this, "DbEndpoint", { value: db.dbInstanceEndpointAddress });
   }
