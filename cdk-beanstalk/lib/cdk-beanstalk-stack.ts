@@ -26,7 +26,7 @@ export class CdkBeanstalkStack extends cdk.Stack {
     // SG
     const ebSG = new ec2.SecurityGroup(this, "EbSG", { vpc, allowAllOutbound: true });
     const dbSG = new ec2.SecurityGroup(this, "DbSG", { vpc, allowAllOutbound: true });
-    dbSG.addIngressRule(ebSG, ec2.Port.tcp(3306), "Allow EB -> RDS 3306");
+    dbSG.addIngressRule(ebSG, ec2.Port.tcp(3306), "Allow EB TO RDS 3306");
 
     // Secret (username=appuser, auto password)
     const dbSecret = new secretsmgr.Secret(this, "DbSecret", {
