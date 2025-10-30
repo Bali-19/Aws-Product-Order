@@ -14,22 +14,23 @@ export class CdkBeanstalkStack extends cdk.Stack {
     const appName = "product-order-eb";
     const envName = "product-order-env";
 
-    // VPC
+    /* ---------------------- VPC ---------------------- */
     const vpc = new ec2.Vpc(this, "Vpc", {
       maxAzs: 2,
       natGateways: 1,
       subnetConfiguration: [
         { name: "public", subnetType: ec2.SubnetType.PUBLIC },
         { name: "app", subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-        { name: "db", subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
+        { name: "db", subnetType: ec2.SubnetType.PRIVATE_ISOLATED }
       ],
     });
 
-    const ebSG = new ec2.SecurityGroup(this, "EbSG", { vpc, allowAllOutbound: true });
-    const dbSG = new ec2.SecurityGroup(this, "DbSG", { vpc, allowAllOutbound: true });
-    dbSG.addIngressRule(ebSG, ec2.Port.tcp(3306), "Allow EB to DB");
+    /* -------------------- SG -------------------- */
+    const ebSG = new ec2.SecurityGroup(this, "EbSG", { vpc });
+    const dbSG = new ec2.SecurityGroup(this, "DbSG", { vpc });
+    dbSG.addIngressRule(ebSG, ec2.Port.tcp(3306), "Allow EB to RDS");
 
-    // Secret
+    /* -------------------- SECRET -------------------- */
     const dbSecret = new secretsmgr.Secret(this, "DbSecret", {
       generateSecretString: {
         secretStringTemplate: JSON.stringify({ username: "appuser" }),
@@ -38,7 +39,7 @@ export class CdkBeanstalkStack extends cdk.Stack {
       },
     });
 
-    // RDS (use a version your region supports)
+    /* -------------------- RDS -------------------- */
     const db = new rds.DatabaseInstance(this, "AppRds", {
       engine: rds.DatabaseInstanceEngine.mysql({
         version: rds.MysqlEngineVersion.of("8.4.6", "8.4"),
@@ -56,56 +57,38 @@ export class CdkBeanstalkStack extends cdk.Stack {
       databaseName: "productorderdb",
     });
 
-    // EB instance role
-    const instanceRole = new iam.Role(this, "EbInstanceRole", {
-      assumedBy: new iam.ServicePrincipal("ec2.amazonaws.com"),
-    });
-    instanceRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName("AWSElasticBeanstalkWebTier"));
-    instanceRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName("AmazonSSMManagedInstanceCore"));
-    instanceRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName("AmazonEC2ContainerRegistryReadOnly"));
-    const instanceProfile = new iam.CfnInstanceProfile(this, "EbInstanceProfile", {
-      roles: [instanceRole.roleName],
-    });
-
-    // EB application
+    /* -------------------- EB APP -------------------- */
     const app = new elasticbeanstalk.CfnApplication(this, "App", {
       applicationName: appName,
     });
 
-    // Dockerrun asset (ZIP produced by CI in repo root)
-    const dockerrunAsset = new s3assets.Asset(this, "DockerrunAsset", {
-      // If your repo structure is:
-      // / (root)
-      //   dockerrun.zip     <-- CI creates this file here
-      //   cdk-beanstalk/...
-      // then path is "../dockerrun.zip" from the cdk-beanstalk dir
-      path: "../dockerrun.zip",
+    /* -------------------- EB VERSION ZIP -------------------- */
+    const appZip = new s3assets.Asset(this, "AppZip", {
+      path: "../app-bundle.zip",   // created via CI
     });
 
-    // Unique construct id => new EB ApplicationVersion every deploy
-    const stamp = `V${Date.now()}`; // must start with a letter
+    const stamp = `V${Date.now()}`;
+
     const appVersion = new elasticbeanstalk.CfnApplicationVersion(this, `AppVersion${stamp}`, {
       applicationName: appName,
       sourceBundle: {
-        s3Bucket: dockerrunAsset.s3BucketName,
-        s3Key: dockerrunAsset.s3ObjectKey,
+        s3Bucket: appZip.s3BucketName,
+        s3Key: appZip.s3ObjectKey,
       },
-      // description is optional; helps debugging
-      description: `CI build ${stamp}`,
+      description: `Build ${stamp}`,
     });
-    appVersion.addDependency(app);
 
-    // EB environment using the generated versionLabel (appVersion.ref)
+    /* -------------------- EB ENV -------------------- */
     const env = new elasticbeanstalk.CfnEnvironment(this, "Environment", {
       environmentName: envName,
       applicationName: appName,
-      solutionStackName: "64bit Amazon Linux 2 v4.3.3 running Docker",
-      versionLabel: appVersion.ref, // <-- THIS is the right way
+      solutionStackName:
+          "64bit Amazon Linux 2 v4.3.6 running Corretto 17",  // ✅ Java 17
+      versionLabel: appVersion.ref,
       optionSettings: [
         { namespace: "aws:ec2:vpc", optionName: "VPCId", value: vpc.vpcId },
         { namespace: "aws:ec2:vpc", optionName: "Subnets", value: vpc.privateSubnets.map(s => s.subnetId).join(",") },
         { namespace: "aws:ec2:vpc", optionName: "ELBSubnets", value: vpc.publicSubnets.map(s => s.subnetId).join(",") },
-        { namespace: "aws:autoscaling:launchconfiguration", optionName: "IamInstanceProfile", value: instanceProfile.ref },
         { namespace: "aws:autoscaling:launchconfiguration", optionName: "SecurityGroups", value: ebSG.securityGroupId },
         { namespace: "aws:autoscaling:launchconfiguration", optionName: "InstanceType", value: "t3.micro" },
 
@@ -116,6 +99,7 @@ export class CdkBeanstalkStack extends cdk.Stack {
         { namespace: "aws:elasticbeanstalk:application:environment", optionName: "DB_PASS", value: dbSecret.secretValueFromJson("password").unsafeUnwrap() },
       ],
     });
+
     env.addDependency(appVersion);
 
     new cdk.CfnOutput(this, "EbUrl", { value: env.attrEndpointUrl });
