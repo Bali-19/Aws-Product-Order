@@ -5,7 +5,6 @@ import * as s3assets from "aws-cdk-lib/aws-s3-assets";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as rds from "aws-cdk-lib/aws-rds";
 import * as secretsmgr from "aws-cdk-lib/aws-secretsmanager";
-import * as iam from "aws-cdk-lib/aws-iam";
 
 export class CdkBeanstalkStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -27,7 +26,7 @@ export class CdkBeanstalkStack extends cdk.Stack {
     /* -------------------- SG -------------------- */
     const ebSG = new ec2.SecurityGroup(this, "EbSG", { vpc });
     const dbSG = new ec2.SecurityGroup(this, "DbSG", { vpc });
-    dbSG.addIngressRule(ebSG, ec2.Port.tcp(3306), "Allow EB to RDS");
+    dbSG.addIngressRule(ebSG, ec2.Port.tcp(3306));
 
     /* -------------------- SECRET -------------------- */
     const dbSecret = new secretsmgr.Secret(this, "DbSecret", {
@@ -41,13 +40,16 @@ export class CdkBeanstalkStack extends cdk.Stack {
     /* -------------------- RDS -------------------- */
     const db = new rds.DatabaseInstance(this, "AppRds", {
       engine: rds.DatabaseInstanceEngine.mysql({
-        version: rds.MysqlEngineVersion.of("8.4.6", "8.4"),
+        version: rds.MysqlEngineVersion.of("8.4.6","8.4"),
       }),
       vpc,
       vpcSubnets: { subnets: vpc.isolatedSubnets },
       securityGroups: [dbSG],
       credentials: rds.Credentials.fromSecret(dbSecret),
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
+      instanceType: ec2.InstanceType.of(
+          ec2.InstanceClass.T3,
+          ec2.InstanceSize.MICRO
+      ),
       allocatedStorage: 20,
       maxAllocatedStorage: 100,
       publiclyAccessible: false,
@@ -63,19 +65,23 @@ export class CdkBeanstalkStack extends cdk.Stack {
 
     /* -------------------- EB VERSION ZIP -------------------- */
     const appZip = new s3assets.Asset(this, "AppZip", {
-      path: "../app-bundle.zip",   // created via CI
+      path: "../app-bundle.zip",   // ✅ zip created by CI
     });
 
-    const stamp = `V${Date.now()}`;
+    const versionStamp = `V${Date.now()}`;
 
-    const appVersion = new elasticbeanstalk.CfnApplicationVersion(this, `AppVersion${stamp}`, {
-      applicationName: appName,
-      sourceBundle: {
-        s3Bucket: appZip.s3BucketName,
-        s3Key: appZip.s3ObjectKey,
-      },
-      description: `Build ${stamp}`,
-    });
+    const appVersion = new elasticbeanstalk.CfnApplicationVersion(
+        this,
+        "AppVersion",
+        {
+          applicationName: appName,
+          sourceBundle: {
+            s3Bucket: appZip.s3BucketName,
+            s3Key: appZip.s3ObjectKey,
+          },
+          description: versionStamp,
+        }
+    );
 
     appVersion.addDependency(app);
 
@@ -83,27 +89,70 @@ export class CdkBeanstalkStack extends cdk.Stack {
     const env = new elasticbeanstalk.CfnEnvironment(this, "Environment", {
       environmentName: envName,
       applicationName: appName,
-      solutionStackName:
-          "64bit Amazon Linux 2023 v4.7.0 running Corretto 17",  // ✅ Java 17
       versionLabel: appVersion.ref,
+      solutionStackName:
+          "64bit Amazon Linux 2023 v4.7.0 running Corretto 17",
       optionSettings: [
-        { namespace: "aws:ec2:vpc", optionName: "VPCId", value: vpc.vpcId },
-        { namespace: "aws:ec2:vpc", optionName: "Subnets", value: vpc.privateSubnets.map(s => s.subnetId).join(",") },
-        { namespace: "aws:ec2:vpc", optionName: "ELBSubnets", value: vpc.publicSubnets.map(s => s.subnetId).join(",") },
-        { namespace: "aws:autoscaling:launchconfiguration", optionName: "SecurityGroups", value: ebSG.securityGroupId },
-        { namespace: "aws:autoscaling:launchconfiguration", optionName: "InstanceType", value: "t3.micro" },
+        {
+          namespace: "aws:ec2:vpc",
+          optionName: "VPCId",
+          value: vpc.vpcId,
+        },
+        {
+          namespace: "aws:ec2:vpc",
+          optionName: "Subnets",
+          value: vpc.privateSubnets.map((s) => s.subnetId).join(","),
+        },
+        {
+          namespace: "aws:ec2:vpc",
+          optionName: "ELBSubnets",
+          value: vpc.publicSubnets.map((s) => s.subnetId).join(","),
+        },
+        {
+          namespace: "aws:autoscaling:launchconfiguration",
+          optionName: "SecurityGroups",
+          value: ebSG.securityGroupId,
+        },
+        {
+          namespace: "aws:autoscaling:launchconfiguration",
+          optionName: "InstanceType",
+          value: "t3.micro",
+        },
 
-        { namespace: "aws:elasticbeanstalk:application:environment", optionName: "DB_HOST", value: db.dbInstanceEndpointAddress },
-        { namespace: "aws:elasticbeanstalk:application:environment", optionName: "DB_PORT", value: db.dbInstanceEndpointPort },
-        { namespace: "aws:elasticbeanstalk:application:environment", optionName: "DB_NAME", value: "productorderdb" },
-        { namespace: "aws:elasticbeanstalk:application:environment", optionName: "DB_USER", value: dbSecret.secretValueFromJson("username").unsafeUnwrap() },
-        { namespace: "aws:elasticbeanstalk:application:environment", optionName: "DB_PASS", value: dbSecret.secretValueFromJson("password").unsafeUnwrap() },
+        /* ---------------- ENV VARS ---------------- */
+        {
+          namespace: "aws:elasticbeanstalk:application:environment",
+          optionName: "DB_HOST",
+          value: db.dbInstanceEndpointAddress,
+        },
+        {
+          namespace: "aws:elasticbeanstalk:application:environment",
+          optionName: "DB_PORT",
+          value: db.dbInstanceEndpointPort,
+        },
+        {
+          namespace: "aws:elasticbeanstalk:application:environment",
+          optionName: "DB_NAME",
+          value: "productorderdb",
+        },
+        {
+          namespace: "aws:elasticbeanstalk:application:environment",
+          optionName: "DB_USER",
+          value: dbSecret.secretValueFromJson("username").unsafeUnwrap(),
+        },
+        {
+          namespace: "aws:elasticbeanstalk:application:environment",
+          optionName: "DB_PASS",
+          value: dbSecret.secretValueFromJson("password").unsafeUnwrap(),
+        },
       ],
     });
 
     env.addDependency(appVersion);
 
     new cdk.CfnOutput(this, "EbUrl", { value: env.attrEndpointUrl });
-    new cdk.CfnOutput(this, "DbEndpoint", { value: db.dbInstanceEndpointAddress });
+    new cdk.CfnOutput(this, "DbEndpoint", {
+      value: db.dbInstanceEndpointAddress,
+    });
   }
 }
