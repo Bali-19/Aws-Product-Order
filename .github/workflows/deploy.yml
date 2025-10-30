@@ -15,12 +15,12 @@ jobs:
 
     steps:
       # --------------------------------------------------
-      # ✅ Checkout source
+      # ✅ Checkout
       # --------------------------------------------------
       - uses: actions/checkout@v3
 
       # --------------------------------------------------
-      # ✅ Setup Java + Build JAR
+      # ✅ Build Spring Boot JAR
       # --------------------------------------------------
       - name: Setup Java
         uses: actions/setup-java@v3
@@ -35,7 +35,7 @@ jobs:
           cp target/*.jar app.jar
 
       # --------------------------------------------------
-      # ✅ AWS Credentials
+      # ✅ Configure AWS
       # --------------------------------------------------
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -44,9 +44,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # --------------------------------------------------
-      # ✅ Login to ECR
-      # --------------------------------------------------
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
@@ -61,7 +58,7 @@ jobs:
           docker push ${{ secrets.ECR_REGISTRY }}/$ECR_REPO:latest
 
       # --------------------------------------------------
-      # ✅ Generate Dockerrun.aws.json
+      # ✅ Generate new Dockerrun
       # --------------------------------------------------
       - name: Generate Dockerrun.aws.json
         run: |
@@ -80,23 +77,50 @@ jobs:
             ]
           }
           EOF
-          echo "Generated Dockerrun content:"
           cat eb-dockerrun/Dockerrun.aws.json
 
       # --------------------------------------------------
-      # ✅ CDK Install
+      # ✅ ZIP Dockerrun for CDK
+      # --------------------------------------------------
+      - name: Zip Dockerrun
+        run: |
+          cd eb-dockerrun
+          zip ../dockerrun.zip Dockerrun.aws.json
+          echo "Dockerrun zipped."
+
+      # --------------------------------------------------
+      # ✅ CDK
       # --------------------------------------------------
       - name: Install CDK
         run: npm install -g aws-cdk
 
-      - name: Install CDK libs
+      - name: Install dependencies
         run: |
           cd cdk-beanstalk
           npm install
 
-      # --------------------------------------------------
-      # ✅ Deploy CDK
-      # --------------------------------------------------
+      - name: Generate Dockerrun.aws.json
+        run: |
+          mkdir -p eb-dockerrun
+          cat > eb-dockerrun/Dockerrun.aws.json <<EOF
+          {
+            "AWSEBDockerrunVersion": 1,
+            "Image": {
+              "Name": "${{ secrets.ECR_REGISTRY }}/$ECR_REPO:latest",
+              "Update": true
+            },
+            "Ports": [
+              { "ContainerPort": 8080 }
+            ]
+          }
+          EOF
+          cat eb-dockerrun/Dockerrun.aws.json
+
+      - name: Zip Dockerrun
+        run: |
+          cd eb-dockerrun
+          zip ../dockerrun.zip Dockerrun.aws.json
+
       - name: Deploy CDK
         run: |
           cd cdk-beanstalk

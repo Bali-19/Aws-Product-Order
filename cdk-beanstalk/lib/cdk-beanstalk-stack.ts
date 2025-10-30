@@ -14,38 +14,22 @@ export class CdkBeanstalkStack extends cdk.Stack {
     const appName = "product-order-eb";
     const envName = "product-order-env";
 
-    /* ----------------------------- VPC & Subnets ----------------------------- */
+    // VPC
     const vpc = new ec2.Vpc(this, "Vpc", {
       maxAzs: 2,
       natGateways: 1,
       subnetConfiguration: [
         { name: "public", subnetType: ec2.SubnetType.PUBLIC },
-        { name: "private-egress", subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-        { name: "isolated-db", subnetType: ec2.SubnetType.PRIVATE_ISOLATED }
+        { name: "app", subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+        { name: "db", subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       ],
     });
 
-    const publicSubnets = vpc.publicSubnets.map(s => s.subnetId).join(",");
-    const appSubnets = vpc.privateSubnets.map(s => s.subnetId).join(","); // EB instances
-    const dbSubnets = vpc.isolatedSubnets; // RDS
+    const ebSG = new ec2.SecurityGroup(this, "EbSG", { vpc, allowAllOutbound: true });
+    const dbSG = new ec2.SecurityGroup(this, "DbSG", { vpc, allowAllOutbound: true });
+    dbSG.addIngressRule(ebSG, ec2.Port.tcp(3306), "Allow EB to DB");
 
-    /* ------------------------------ Security Groups ------------------------------ */
-    const ebSg = new ec2.SecurityGroup(this, "EbSecurityGroup", {
-      vpc,
-      allowAllOutbound: true,
-      description: "EB instances SG",
-    });
-
-    const dbSg = new ec2.SecurityGroup(this, "DbSecurityGroup", {
-      vpc,
-      allowAllOutbound: true,
-      description: "RDS SG",
-    });
-
-    // allow EB -> DB on 3306
-    dbSg.addIngressRule(ebSg, ec2.Port.tcp(3306), "Allow EB instances to MySQL");
-
-    /* --------------------------------- Secrets --------------------------------- */
+    // Secret
     const dbSecret = new secretsmgr.Secret(this, "DbSecret", {
       generateSecretString: {
         secretStringTemplate: JSON.stringify({ username: "appuser" }),
@@ -54,17 +38,16 @@ export class CdkBeanstalkStack extends cdk.Stack {
       },
     });
 
-    /* ---------------------------------- RDS ---------------------------------- */
+    // RDS (use a version your region supports)
     const db = new rds.DatabaseInstance(this, "AppRds", {
       engine: rds.DatabaseInstanceEngine.mysql({
-        version: rds.MysqlEngineVersion.of("8.4.6", "8.4")
+        version: rds.MysqlEngineVersion.of("8.4.6", "8.4"),
       }),
       vpc,
-      vpcSubnets: { subnets: dbSubnets },
-      securityGroups: [dbSg],
+      vpcSubnets: { subnets: vpc.isolatedSubnets },
+      securityGroups: [dbSG],
       credentials: rds.Credentials.fromSecret(dbSecret),
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
-      multiAz: false,
       allocatedStorage: 20,
       maxAllocatedStorage: 100,
       publiclyAccessible: false,
@@ -73,81 +56,67 @@ export class CdkBeanstalkStack extends cdk.Stack {
       databaseName: "productorderdb",
     });
 
-    /* ----------------------- EB Instance Role + Profile ----------------------- */
+    // EB instance role
     const instanceRole = new iam.Role(this, "EbInstanceRole", {
       assumedBy: new iam.ServicePrincipal("ec2.amazonaws.com"),
-      description: "Role for EB EC2 instances",
     });
-
-    // Web tier baseline + SSM + ECR read (to pull from private ECR)
-    instanceRole.addManagedPolicy(
-        iam.ManagedPolicy.fromAwsManagedPolicyName("AWSElasticBeanstalkWebTier")
-    );
-    instanceRole.addManagedPolicy(
-        iam.ManagedPolicy.fromAwsManagedPolicyName("AmazonSSMManagedInstanceCore")
-    );
-    instanceRole.addManagedPolicy(
-        iam.ManagedPolicy.fromAwsManagedPolicyName("AmazonEC2ContainerRegistryReadOnly")
-    );
-
+    instanceRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName("AWSElasticBeanstalkWebTier"));
+    instanceRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName("AmazonSSMManagedInstanceCore"));
+    instanceRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName("AmazonEC2ContainerRegistryReadOnly"));
     const instanceProfile = new iam.CfnInstanceProfile(this, "EbInstanceProfile", {
       roles: [instanceRole.roleName],
     });
 
-    /* ------------------------------ EB Application ----------------------------- */
+    // EB application
     const app = new elasticbeanstalk.CfnApplication(this, "App", {
       applicationName: appName,
     });
 
+    // Dockerrun asset (ZIP produced by CI in repo root)
     const dockerrunAsset = new s3assets.Asset(this, "DockerrunAsset", {
-      path: "../eb-dockerrun", // contains Dockerrun.aws.json (v1)
+      // If your repo structure is:
+      // / (root)
+      //   dockerrun.zip     <-- CI creates this file here
+      //   cdk-beanstalk/...
+      // then path is "../dockerrun.zip" from the cdk-beanstalk dir
+      path: "../dockerrun.zip",
     });
 
-    const appVersion = new elasticbeanstalk.CfnApplicationVersion(this, "AppVersion", {
-      applicationName: app.applicationName!,
+    // Unique construct id => new EB ApplicationVersion every deploy
+    const stamp = `V${Date.now()}`; // must start with a letter
+    const appVersion = new elasticbeanstalk.CfnApplicationVersion(this, `AppVersion${stamp}`, {
+      applicationName: appName,
       sourceBundle: {
         s3Bucket: dockerrunAsset.s3BucketName,
         s3Key: dockerrunAsset.s3ObjectKey,
       },
+      // description is optional; helps debugging
+      description: `CI build ${stamp}`,
     });
     appVersion.addDependency(app);
 
-    /* ---------------------------- EB Environment (AL2) ---------------------------- */
+    // EB environment using the generated versionLabel (appVersion.ref)
     const env = new elasticbeanstalk.CfnEnvironment(this, "Environment", {
       environmentName: envName,
-      applicationName: app.applicationName!,
-      // Use a valid Docker platform from your "list-available-solution-stacks"
+      applicationName: appName,
       solutionStackName: "64bit Amazon Linux 2 v4.3.3 running Docker",
-      versionLabel: appVersion.ref,
+      versionLabel: appVersion.ref, // <-- THIS is the right way
       optionSettings: [
-        // VPC & Subnets: ALB on public, instances on private-egress
         { namespace: "aws:ec2:vpc", optionName: "VPCId", value: vpc.vpcId },
-        { namespace: "aws:ec2:vpc", optionName: "ELBSubnets", value: publicSubnets },
-        { namespace: "aws:ec2:vpc", optionName: "Subnets", value: appSubnets },
-
-        // Instance profile & SG
+        { namespace: "aws:ec2:vpc", optionName: "Subnets", value: vpc.privateSubnets.map(s => s.subnetId).join(",") },
+        { namespace: "aws:ec2:vpc", optionName: "ELBSubnets", value: vpc.publicSubnets.map(s => s.subnetId).join(",") },
         { namespace: "aws:autoscaling:launchconfiguration", optionName: "IamInstanceProfile", value: instanceProfile.ref },
-        { namespace: "aws:autoscaling:launchconfiguration", optionName: "SecurityGroups", value: ebSg.securityGroupId },
+        { namespace: "aws:autoscaling:launchconfiguration", optionName: "SecurityGroups", value: ebSG.securityGroupId },
         { namespace: "aws:autoscaling:launchconfiguration", optionName: "InstanceType", value: "t3.micro" },
 
-        // App ENV (flatten secret values to strings!)
         { namespace: "aws:elasticbeanstalk:application:environment", optionName: "DB_HOST", value: db.dbInstanceEndpointAddress },
         { namespace: "aws:elasticbeanstalk:application:environment", optionName: "DB_PORT", value: db.dbInstanceEndpointPort },
         { namespace: "aws:elasticbeanstalk:application:environment", optionName: "DB_NAME", value: "productorderdb" },
-        {
-          namespace: "aws:elasticbeanstalk:application:environment",
-          optionName: "DB_USER",
-          value: dbSecret.secretValueFromJson("username").unsafeUnwrap(),
-        },
-        {
-          namespace: "aws:elasticbeanstalk:application:environment",
-          optionName: "DB_PASS",
-          value: dbSecret.secretValueFromJson("password").unsafeUnwrap(),
-        },
-
-        { namespace: "aws:elasticbeanstalk:healthreporting:system", optionName: "SystemType", value: "enhanced" },
+        { namespace: "aws:elasticbeanstalk:application:environment", optionName: "DB_USER", value: dbSecret.secretValueFromJson("username").unsafeUnwrap() },
+        { namespace: "aws:elasticbeanstalk:application:environment", optionName: "DB_PASS", value: dbSecret.secretValueFromJson("password").unsafeUnwrap() },
       ],
     });
+    env.addDependency(appVersion);
 
     new cdk.CfnOutput(this, "EbUrl", { value: env.attrEndpointUrl });
     new cdk.CfnOutput(this, "DbEndpoint", { value: db.dbInstanceEndpointAddress });
