@@ -14,11 +14,14 @@ jobs:
       ECR_REPO: ${{ secrets.ECR_REPO_NAME }}
 
     steps:
+      # --------------------------------------------------
+      # ✅ Checkout source
+      # --------------------------------------------------
       - uses: actions/checkout@v3
 
-      # -----------------------------
-      # Install Java & Build JAR
-      # -----------------------------
+      # --------------------------------------------------
+      # ✅ Setup Java + Build JAR
+      # --------------------------------------------------
       - name: Setup Java
         uses: actions/setup-java@v3
         with:
@@ -31,12 +34,25 @@ jobs:
           mvn clean package -DskipTests
           cp target/*.jar app.jar
 
-      # -----------------------------
-      # Docker Build + Push → ECR
-      # -----------------------------
+      # --------------------------------------------------
+      # ✅ AWS Credentials
+      # --------------------------------------------------
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # --------------------------------------------------
+      # ✅ Login to ECR
+      # --------------------------------------------------
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      # --------------------------------------------------
+      # ✅ Build + Push Docker
+      # --------------------------------------------------
       - name: Build & Push Docker
         run: |
           cd Backend
@@ -44,9 +60,9 @@ jobs:
           docker tag $ECR_REPO:latest ${{ secrets.ECR_REGISTRY }}/$ECR_REPO:latest
           docker push ${{ secrets.ECR_REGISTRY }}/$ECR_REPO:latest
 
-      # -----------------------------
-      # Generate fresh Dockerrun
-      # -----------------------------
+      # --------------------------------------------------
+      # ✅ Generate Dockerrun.aws.json
+      # --------------------------------------------------
       - name: Generate Dockerrun.aws.json
         run: |
           mkdir -p eb-dockerrun
@@ -64,12 +80,12 @@ jobs:
             ]
           }
           EOF
-          echo "Generated Dockerrun:"
+          echo "Generated Dockerrun content:"
           cat eb-dockerrun/Dockerrun.aws.json
 
-      # -----------------------------
-      # CDK Deployment
-      # -----------------------------
+      # --------------------------------------------------
+      # ✅ CDK Install
+      # --------------------------------------------------
       - name: Install CDK
         run: npm install -g aws-cdk
 
@@ -78,6 +94,9 @@ jobs:
           cd cdk-beanstalk
           npm install
 
+      # --------------------------------------------------
+      # ✅ Deploy CDK
+      # --------------------------------------------------
       - name: Deploy CDK
         run: |
           cd cdk-beanstalk
