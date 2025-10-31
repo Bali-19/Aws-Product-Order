@@ -162,14 +162,10 @@ export class CdkBeanstalkStack extends cdk.Stack {
         },
         {
           namespace: "aws:elasticbeanstalk:application:environment",
-          optionName: "DB_USER",
-          value: dbSecret.secretValueFromJson("username").toString(),
+          optionName: "DB_SECRET_ARN",
+          value: dbSecret.secretArn,
         },
-        {
-          namespace: "aws:elasticbeanstalk:application:environment",
-          optionName: "DB_PASS",
-          value: dbSecret.secretValueFromJson("password").toString(),
-        },
+
       ],
     });
 
