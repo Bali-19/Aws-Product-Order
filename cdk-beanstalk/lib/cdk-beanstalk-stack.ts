@@ -63,7 +63,11 @@ export class CdkBeanstalkStack extends cdk.Stack {
       applicationName: appName,
     });
 
-    /* EB Environment - Fixed subnet configuration */
+    /* Create a custom resource to safely resolve secret values */
+    const dbUser = cdk.Fn.select(0, cdk.Fn.split(':', dbSecret.secretArn));
+    const dbPassword = dbSecret.secretValueFromJson("password").unsafeUnwrap();
+
+    /* EB Environment - Fixed subnet configuration and secret handling */
     const env = new elasticbeanstalk.CfnEnvironment(this, "Environment", {
       environmentName: envName,
       applicationName: appName,
@@ -134,12 +138,12 @@ export class CdkBeanstalkStack extends cdk.Stack {
         {
           namespace: "aws:elasticbeanstalk:application:environment",
           optionName: "DB_USER",
-          value: dbSecret.secretValueFromJson("username").toString(),
+          value: dbSecret.secretValueFromJson("username").unsafeUnwrap(),
         },
         {
           namespace: "aws:elasticbeanstalk:application:environment",
           optionName: "DB_PASS",
-          value: dbSecret.secretValueFromJson("password").toString(),
+          value: dbSecret.secretValueFromJson("password").unsafeUnwrap(),
         },
       ],
     });
