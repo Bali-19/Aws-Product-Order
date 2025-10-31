@@ -178,7 +178,8 @@ export class CdkBeanstalkStack extends cdk.Stack {
     });
 
     env.addDependency(app);
-
+    env.addDependency(db);
+    env.addDependency(ebSG);
     new cdk.CfnOutput(this, "EB_URL", {
       value: env.attrEndpointUrl,
     });
