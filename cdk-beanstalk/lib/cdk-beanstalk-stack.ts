@@ -1,7 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as elasticbeanstalk from "aws-cdk-lib/aws-elasticbeanstalk";
-import * as s3assets from "aws-cdk-lib/aws-s3-assets";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as rds from "aws-cdk-lib/aws-rds";
 import * as secretsmgr from "aws-cdk-lib/aws-secretsmanager";
@@ -22,17 +21,13 @@ export class CdkBeanstalkStack extends cdk.Stack {
       ],
     });
 
-    /* SG */
+    /* Security Groups */
     const ebSG = new ec2.SecurityGroup(this, "EbSG", { vpc });
     const dbSG = new ec2.SecurityGroup(this, "DbSG", { vpc });
 
-    dbSG.addIngressRule(
-        ebSG,
-        ec2.Port.tcp(3306),
-        "Allow_EB_to_RDS"
-    );
+    dbSG.addIngressRule(ebSG, ec2.Port.tcp(3306), "Allow EB → RDS");
 
-    /* Secret */
+    /* DB Secret */
     const dbSecret = new secretsmgr.Secret(this, "DbSecret", {
       generateSecretString: {
         secretStringTemplate: JSON.stringify({ username: "appuser" }),
@@ -41,16 +36,19 @@ export class CdkBeanstalkStack extends cdk.Stack {
       },
     });
 
-    /* RDS */
+    /* RDS Instance */
     const db = new rds.DatabaseInstance(this, "AppRds", {
       engine: rds.DatabaseInstanceEngine.mysql({
-        version: rds.MysqlEngineVersion.of("8.0.40", "8.0"),
+        version: rds.MysqlEngineVersion.of("8.0.37", "8.0"),
       }),
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       credentials: rds.Credentials.fromSecret(dbSecret),
       securityGroups: [dbSG],
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
+      instanceType: ec2.InstanceType.of(
+          ec2.InstanceClass.T3,
+          ec2.InstanceSize.MICRO
+      ),
       allocatedStorage: 20,
       maxAllocatedStorage: 100,
       publiclyAccessible: false,
@@ -65,23 +63,23 @@ export class CdkBeanstalkStack extends cdk.Stack {
     });
 
     /* EB Environment */
-    const ebEnv = new elasticbeanstalk.CfnEnvironment(this, "Environment", {
+    const env = new elasticbeanstalk.CfnEnvironment(this, "Environment", {
       environmentName: envName,
       applicationName: appName,
       solutionStackName: "64bit Amazon Linux 2023 v4.7.0 running Corretto 17",
       optionSettings: [
         {
           namespace: "aws:autoscaling:launchconfiguration",
-          optionName: "SecurityGroups",
-          value: ebSG.securityGroupId,
-        },
-        {
-          namespace: "aws:autoscaling:launchconfiguration",
           optionName: "InstanceType",
           value: "t3.micro",
         },
+        {
+          namespace: "aws:autoscaling:launchconfiguration",
+          optionName: "SecurityGroups",
+          value: ebSG.securityGroupId,
+        },
 
-        // DB ENV
+        /* DB ENV */
         {
           namespace: "aws:elasticbeanstalk:application:environment",
           optionName: "DB_HOST",
@@ -110,9 +108,14 @@ export class CdkBeanstalkStack extends cdk.Stack {
       ],
     });
 
-    ebEnv.addDependency(app);
+    env.addDependency(app);
 
-    new cdk.CfnOutput(this, "EB_URL", { value: ebEnv.attrEndpointUrl });
-    new cdk.CfnOutput(this, "DB_ENDPOINT", { value: db.dbInstanceEndpointAddress });
+    new cdk.CfnOutput(this, "EB_URL", {
+      value: env.attrEndpointUrl,
+    });
+
+    new cdk.CfnOutput(this, "DB_ENDPOINT", {
+      value: db.dbInstanceEndpointAddress,
+    });
   }
 }

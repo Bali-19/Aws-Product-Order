@@ -1,21 +1,27 @@
-name: Build & Deploy EB
+name: Infra + Build + Deploy
 
 on:
   push:
     branches: ["code-1"]
 
 jobs:
-  build-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     env:
-      EB_APP_NAME: product-order-eb
-      EB_ENV_NAME: product-order-env
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
       AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_EB_APP_NAME: product-order-eb
+      AWS_EB_ENV_NAME: product-order-env
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # SETUP TOOLS
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
 
       - name: Setup Java
         uses: actions/setup-java@v3
@@ -23,40 +29,44 @@ jobs:
           java-version: "17"
           distribution: "temurin"
 
-      - name: Build JAR
-        run: |
-          cd Backend
-          mvn clean package -DskipTests
-          cp target/*.jar ../application.jar
+      - name: Install AWS CDK
+        run: npm install -g aws-cdk
 
-      - name: Create ZIP bundle
-        run: |
-          zip app-bundle.zip application.jar
-          ls -lah
+      - name: Install EB CLI
+        run: pip install awsebcli
 
-      - name: Configure AWS Credentials
+      # CONFIGURE AWS CREDENTIALS
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Upload to S3
+      # 1) DEPLOY INFRA VIA CDK
+      - name: Install CDK Dependencies
         run: |
-          VERSION="build-$(date +%s)"
-          aws s3 cp app-bundle.zip s3://$S3_BUCKET/$VERSION.zip
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          cd cdk
+          npm ci
 
-      - name: Create EB App Version
+      - name: Deploy CDK
         run: |
-          aws elasticbeanstalk create-application-version \
-            --application-name $EB_APP_NAME \
-            --version-label $VERSION \
-            --source-bundle S3Bucket=$S3_BUCKET,S3Key=$VERSION.zip
+          cd cdk
+          cdk deploy --require-approval=never
 
-      - name: Update EB Env
+      # 2) BUILD BACKEND APP
+      - name: Build JAR
         run: |
-          aws elasticbeanstalk update-environment \
-            --application-name $EB_APP_NAME \
-            --environment-name $EB_ENV_NAME \
-            --version-label $VERSION
+          cd Backend
+          mvn clean package -DskipTests
+
+      # 3) DEPLOY TO EB
+      - name: EB Deploy
+        run: |
+          cd Backend
+          eb init $AWS_EB_APP_NAME \
+            --region $AWS_REGION \
+            --platform "Corretto 17 running on 64bit Amazon Linux 2023"
+
+          eb use $AWS_EB_ENV_NAME
+          eb deploy --staged -nh
