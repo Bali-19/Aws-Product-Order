@@ -1,4 +1,4 @@
-name: Build & Deploy
+name: Build & Deploy EB
 
 on:
   push:
@@ -9,9 +9,10 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
+      EB_APP_NAME: product-order-eb
+      EB_ENV_NAME: product-order-env
+      S3_BUCKET: ${{ secrets.S3_BUCKET }}
       AWS_REGION: ${{ secrets.AWS_REGION }}
-      AWS_EB_APP_NAME: product-order-eb
-      AWS_EB_ENV_NAME: product-order-env
 
     steps:
       - uses: actions/checkout@v3
@@ -22,14 +23,16 @@ jobs:
           java-version: "17"
           distribution: "temurin"
 
-      - name: Build
+      - name: Build JAR
         run: |
           cd Backend
           mvn clean package -DskipTests
+          cp target/*.jar ../application.jar
 
-      - name: Install EB CLI
+      - name: Create ZIP bundle
         run: |
-          pip install awsebcli
+          zip app-bundle.zip application.jar
+          ls -lah
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -38,11 +41,22 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Deploy to EB
+      - name: Upload to S3
         run: |
-          cd Backend
-          eb init $AWS_EB_APP_NAME \
-          --region $AWS_REGION \
-          --platform "Corretto 17 running on 64bit Amazon Linux 2023"
-          eb use $AWS_EB_ENV_NAME
-          eb deploy --staged -nh
+          VERSION="build-$(date +%s)"
+          aws s3 cp app-bundle.zip s3://$S3_BUCKET/$VERSION.zip
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Create EB App Version
+        run: |
+          aws elasticbeanstalk create-application-version \
+            --application-name $EB_APP_NAME \
+            --version-label $VERSION \
+            --source-bundle S3Bucket=$S3_BUCKET,S3Key=$VERSION.zip
+
+      - name: Update EB Env
+        run: |
+          aws elasticbeanstalk update-environment \
+            --application-name $EB_APP_NAME \
+            --environment-name $EB_ENV_NAME \
+            --version-label $VERSION

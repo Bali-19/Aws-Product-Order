@@ -1,10 +1,10 @@
 import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as elasticbeanstalk from "aws-cdk-lib/aws-elasticbeanstalk";
+import * as s3assets from "aws-cdk-lib/aws-s3-assets";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as rds from "aws-cdk-lib/aws-rds";
 import * as secretsmgr from "aws-cdk-lib/aws-secretsmanager";
-import * as iam from "aws-cdk-lib/aws-iam";
 
 export class CdkBeanstalkStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -13,8 +13,14 @@ export class CdkBeanstalkStack extends cdk.Stack {
     const appName = "product-order-eb";
     const envName = "product-order-env";
 
-    /* Default VPC */
-    const vpc = ec2.Vpc.fromLookup(this, "DefaultVpc", { isDefault: true });
+    /* VPC */
+    const vpc = new ec2.Vpc(this, "Vpc", {
+      maxAzs: 2,
+      subnetConfiguration: [
+        { name: "public", subnetType: ec2.SubnetType.PUBLIC },
+        { name: "db", subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
+      ],
+    });
 
     /* SG */
     const ebSG = new ec2.SecurityGroup(this, "EbSG", { vpc });
@@ -38,55 +44,32 @@ export class CdkBeanstalkStack extends cdk.Stack {
     /* RDS */
     const db = new rds.DatabaseInstance(this, "AppRds", {
       engine: rds.DatabaseInstanceEngine.mysql({
-        version: rds.MysqlEngineVersion.of("8.0.37", "8.0"),
+        version: rds.MysqlEngineVersion.of("8.0.40", "8.0"),
       }),
       vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      securityGroups: [dbSG],
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       credentials: rds.Credentials.fromSecret(dbSecret),
+      securityGroups: [dbSG],
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
       allocatedStorage: 20,
       maxAllocatedStorage: 100,
-      deletionProtection: false,
       publiclyAccessible: false,
+      deletionProtection: false,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       databaseName: "productorderdb",
     });
 
     /* EB Application */
-    new elasticbeanstalk.CfnApplication(this, "EbApp", {
+    const app = new elasticbeanstalk.CfnApplication(this, "App", {
       applicationName: appName,
     });
 
-    /* Instance role */
-    const role = new iam.Role(this, "EbEC2Role", {
-      assumedBy: new iam.ServicePrincipal("ec2.amazonaws.com"),
-    });
-
-    role.addManagedPolicy(
-        iam.ManagedPolicy.fromAwsManagedPolicyName("AWSElasticBeanstalkWebTier")
-    );
-
-    const instanceProfile = new iam.CfnInstanceProfile(
-        this,
-        "EbInstanceProfile",
-        {
-          roles: [role.roleName],
-        }
-    );
-
-    /* ✅ EB Environment (NO versionLabel) */
-    new elasticbeanstalk.CfnEnvironment(this, "EbEnv", {
-      applicationName: appName,
+    /* EB Environment */
+    const ebEnv = new elasticbeanstalk.CfnEnvironment(this, "Environment", {
       environmentName: envName,
+      applicationName: appName,
       solutionStackName: "64bit Amazon Linux 2023 v4.7.0 running Corretto 17",
-
       optionSettings: [
-        {
-          namespace: "aws:autoscaling:launchconfiguration",
-          optionName: "IamInstanceProfile",
-          value: instanceProfile.ref,
-        },
         {
           namespace: "aws:autoscaling:launchconfiguration",
           optionName: "SecurityGroups",
@@ -98,7 +81,7 @@ export class CdkBeanstalkStack extends cdk.Stack {
           value: "t3.micro",
         },
 
-        /* DB ENVs */
+        // DB ENV
         {
           namespace: "aws:elasticbeanstalk:application:environment",
           optionName: "DB_HOST",
@@ -127,9 +110,9 @@ export class CdkBeanstalkStack extends cdk.Stack {
       ],
     });
 
-    /* Outputs */
-    new cdk.CfnOutput(this, "RDS_ENDPOINT", {
-      value: db.dbInstanceEndpointAddress,
-    });
+    ebEnv.addDependency(app);
+
+    new cdk.CfnOutput(this, "EB_URL", { value: ebEnv.attrEndpointUrl });
+    new cdk.CfnOutput(this, "DB_ENDPOINT", { value: db.dbInstanceEndpointAddress });
   }
 }
