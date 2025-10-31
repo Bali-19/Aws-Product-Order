@@ -68,18 +68,35 @@ export class CdkBeanstalkStack extends cdk.Stack {
       applicationName: appName,
       solutionStackName: "64bit Amazon Linux 2023 v4.7.0 running Corretto 17",
       optionSettings: [
+        /* Instance size */
         {
           namespace: "aws:autoscaling:launchconfiguration",
           optionName: "InstanceType",
           value: "t3.micro",
         },
+
+        /* ✅ Security Group (your EB instance SG) */
         {
           namespace: "aws:autoscaling:launchconfiguration",
           optionName: "SecurityGroups",
           value: ebSG.securityGroupId,
         },
 
-        /* DB ENV */
+        /* ✅ Tell EB which VPC to use */
+        {
+          namespace: "aws:ec2:vpc",
+          optionName: "VPCId",
+          value: vpc.vpcId,
+        },
+
+        /* ✅ Tell EB which subnets its EC2 should launch in */
+        {
+          namespace: "aws:ec2:vpc",
+          optionName: "Subnets",
+          value: vpc.privateSubnets.map(s => s.subnetId).join(","),
+        },
+
+        /* ✅ DB ENV */
         {
           namespace: "aws:elasticbeanstalk:application:environment",
           optionName: "DB_HOST",
