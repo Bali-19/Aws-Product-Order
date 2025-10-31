@@ -10,23 +10,27 @@ jobs:
 
     env:
       AWS_REGION: ${{ secrets.AWS_REGION }}
-      AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+      AWS_EB_APP_NAME: product-order-eb
+      AWS_EB_ENV_NAME: product-order-env
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
+      - name: Setup Java
+        uses: actions/setup-java@v3
         with:
           java-version: "17"
           distribution: "temurin"
 
-      - name: Build application.jar
+      - name: Build
         run: |
           cd Backend
-          mvn -q -DskipTests clean package
-          cp target/*.jar application.jar
-          ls -lah application.jar
+          mvn clean package -DskipTests
+
+      # ✅ Install EB CLI
+      - name: Install EB CLI
+        run: |
+          pip install awsebcli
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -35,15 +39,9 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Install CDK
-        run: npm i -g aws-cdk
-
-      - name: Install CDK deps
+      - name: Deploy to EB
         run: |
-          cd cdk-beanstalk
-          npm ci
-
-      - name: Deploy CDK
-        run: |
-          cd cdk-beanstalk
-          cdk deploy --require-approval never
+          cd Backend
+          eb init $AWS_EB_APP_NAME -r $AWS_REGION
+          eb use $AWS_EB_ENV_NAME
+          eb deploy --staged -nh
