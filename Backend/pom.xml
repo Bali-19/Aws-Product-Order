@@ -7,7 +7,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.aws</groupId>
-    <artifactId>Application</artifactId>
+    <artifactId>product-order</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
     <name>AWS Product Order</name>
