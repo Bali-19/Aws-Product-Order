@@ -89,14 +89,18 @@ export class CdkBeanstalkStack extends cdk.Stack {
           value: vpc.vpcId,
         },
 
-        /* ✅ Tell EB which subnets its EC2 should launch in */
+        /* Tell EB which subnets its EC2 should launch in */
         {
           namespace: "aws:ec2:vpc",
           optionName: "Subnets",
           value: vpc.privateSubnets.map(s => s.subnetId).join(","),
         },
-
-        /* ✅ DB ENV */
+        {
+          namespace: "aws:ec2:vpc",
+          optionName: "ELBSubnets",
+          value: vpc.publicSubnets.map(s => s.subnetId).join(","),
+        },
+        /* DB ENV */
         {
           namespace: "aws:elasticbeanstalk:application:environment",
           optionName: "DB_HOST",
