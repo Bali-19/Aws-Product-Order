@@ -46,12 +46,12 @@ jobs:
       # 1) DEPLOY INFRA VIA CDK
       - name: Install CDK Dependencies
         run: |
-          cd cdk
+          cd cdk-beanstalk
           npm ci
 
       - name: Deploy CDK
         run: |
-          cd cdk
+          cd cdk-beanstalk
           cdk deploy --require-approval=never
 
       # 2) BUILD BACKEND APP
