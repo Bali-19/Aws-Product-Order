@@ -12,11 +12,12 @@ export class CdkBeanstalkStack extends cdk.Stack {
     const appName = "product-order-eb";
     const envName = "product-order-env";
 
-    /* VPC */
+    /* VPC - Fixed to include PRIVATE_WITH_EGRESS subnets */
     const vpc = new ec2.Vpc(this, "Vpc", {
       maxAzs: 2,
       subnetConfiguration: [
         { name: "public", subnetType: ec2.SubnetType.PUBLIC },
+        { name: "private", subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
         { name: "db", subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       ],
     });
@@ -62,7 +63,7 @@ export class CdkBeanstalkStack extends cdk.Stack {
       applicationName: appName,
     });
 
-    /* EB Environment */
+    /* EB Environment - Fixed subnet configuration */
     const env = new elasticbeanstalk.CfnEnvironment(this, "Environment", {
       environmentName: envName,
       applicationName: appName,
@@ -89,18 +90,32 @@ export class CdkBeanstalkStack extends cdk.Stack {
           value: vpc.vpcId,
         },
 
-        /* Tell EB which subnets its EC2 should launch in */
+        /* ✅ Fixed: Use PRIVATE_WITH_EGRESS subnets for EC2 instances */
         {
           namespace: "aws:ec2:vpc",
           optionName: "Subnets",
-          value: vpc.privateSubnets.map(s => s.subnetId).join(","),
+          value: vpc.selectSubnets({
+            subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS
+          }).subnetIds.join(","),
         },
+
+        /* ✅ Use PUBLIC subnets for ELB */
         {
           namespace: "aws:ec2:vpc",
           optionName: "ELBSubnets",
-          value: vpc.publicSubnets.map(s => s.subnetId).join(","),
+          value: vpc.selectSubnets({
+            subnetType: ec2.SubnetType.PUBLIC
+          }).subnetIds.join(","),
         },
-        /* DB ENV */
+
+        /* Associate Public IP Address - Important for private instances */
+        {
+          namespace: "aws:ec2:vpc",
+          optionName: "AssociatePublicIpAddress",
+          value: "false",
+        },
+
+        /* DB ENV - Fixed to use safe secret handling */
         {
           namespace: "aws:elasticbeanstalk:application:environment",
           optionName: "DB_HOST",
@@ -119,12 +134,12 @@ export class CdkBeanstalkStack extends cdk.Stack {
         {
           namespace: "aws:elasticbeanstalk:application:environment",
           optionName: "DB_USER",
-          value: dbSecret.secretValueFromJson("username").unsafeUnwrap(),
+          value: dbSecret.secretValueFromJson("username").toString(),
         },
         {
           namespace: "aws:elasticbeanstalk:application:environment",
           optionName: "DB_PASS",
-          value: dbSecret.secretValueFromJson("password").unsafeUnwrap(),
+          value: dbSecret.secretValueFromJson("password").toString(),
         },
       ],
     });
