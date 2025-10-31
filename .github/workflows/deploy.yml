@@ -27,7 +27,6 @@ jobs:
           cd Backend
           mvn clean package -DskipTests
 
-      # ✅ Install EB CLI
       - name: Install EB CLI
         run: |
           pip install awsebcli
@@ -42,6 +41,9 @@ jobs:
       - name: Deploy to EB
         run: |
           cd Backend
-          eb init $AWS_EB_APP_NAME -r $AWS_REGION
+          eb init $AWS_EB_APP_NAME \
+            --region $AWS_REGION \
+            --platform "Corretto 17 running on 64bit Amazon Linux 2023" \
+            --source .
           eb use $AWS_EB_ENV_NAME
           eb deploy --staged -nh
