@@ -4,6 +4,7 @@ import * as elasticbeanstalk from "aws-cdk-lib/aws-elasticbeanstalk";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as rds from "aws-cdk-lib/aws-rds";
 import * as secretsmgr from "aws-cdk-lib/aws-secretsmanager";
+import * as iam from "aws-cdk-lib/aws-iam";
 
 export class CdkBeanstalkStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -58,6 +59,28 @@ export class CdkBeanstalkStack extends cdk.Stack {
       databaseName: "productorderdb",
     });
 
+    // EB EC2 Role
+    const ebEc2Role = new iam.Role(this, "EbEc2Role", {
+      assumedBy: new iam.ServicePrincipal("ec2.amazonaws.com"),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName(
+            "AWSElasticBeanstalkWebTier"
+        ),
+        iam.ManagedPolicy.fromAwsManagedPolicyName(
+            "AmazonSSMManagedInstanceCore"
+        ),
+      ],
+    });
+
+// Instance profile
+    const ebInstanceProfile = new iam.CfnInstanceProfile(
+        this,
+        "EbInstanceProfile",
+        {
+          roles: [ebEc2Role.roleName],
+        }
+    );
+
     /* EB Application */
     const app = new elasticbeanstalk.CfnApplication(this, "App", {
       applicationName: appName,
@@ -85,6 +108,12 @@ export class CdkBeanstalkStack extends cdk.Stack {
           namespace: "aws:autoscaling:launchconfiguration",
           optionName: "SecurityGroups",
           value: ebSG.securityGroupId,
+        },
+
+        {
+          namespace: "aws:autoscaling:launchconfiguration",
+          optionName: "IamInstanceProfile",
+          value: ebInstanceProfile.ref,
         },
 
         /* ✅ Tell EB which VPC to use */
