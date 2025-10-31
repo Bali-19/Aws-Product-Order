@@ -65,5 +65,9 @@
         - name: EB Deploy
           run: |
             cd Backend
+            eb init $AWS_EB_APP_NAME \
+              --region $AWS_REGION \
+              --platform "Corretto 17 running on 64bit Amazon Linux 2023"
+  
             eb use $AWS_EB_ENV_NAME
             eb deploy -nh
