@@ -63,10 +63,6 @@
             <scope>test</scope>
         </dependency>
 
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>secretsmanager</artifactId>
-        </dependency>
 
         <dependency>
             <groupId>com.zaxxer</groupId>
