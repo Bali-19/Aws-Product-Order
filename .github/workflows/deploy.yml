@@ -1,0 +1,73 @@
+  name: Infra + Build + Deploy
+
+  on:
+    push:
+      branches: ["code-1"]
+
+  jobs:
+    deploy:
+      runs-on: ubuntu-latest
+
+      env:
+        AWS_REGION: ${{ secrets.AWS_REGION }}
+        AWS_EB_APP_NAME: product-order-eb
+        AWS_EB_ENV_NAME: product-order-env
+
+      steps:
+        - name: Checkout
+          uses: actions/checkout@v3
+
+        # SETUP TOOLS
+        - name: Setup Node
+          uses: actions/setup-node@v4
+          with:
+            node-version: "20.x"
+
+        - name: Setup Java
+          uses: actions/setup-java@v3
+          with:
+            java-version: "17"
+            distribution: "temurin"
+
+        - name: Install AWS CDK
+          run: npm install -g aws-cdk
+
+        - name: Install EB CLI
+          run: pip install awsebcli
+
+        # CONFIGURE AWS CREDENTIALS
+        - name: Configure AWS credentials
+          uses: aws-actions/configure-aws-credentials@v4
+          with:
+            aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            aws-region: ${{ secrets.AWS_REGION }}
+
+        # 1) DEPLOY INFRA VIA CDK
+        - name: Install CDK Dependencies
+          run: |
+            cd cdk-beanstalk
+            npm ci
+
+        - name: Deploy CDK
+          run: |
+            cd cdk-beanstalk
+            cdk deploy --require-approval=never
+
+        # 2) BUILD BACKEND APP
+        - name: Build JAR
+          run: |
+            cd Backend
+            mvn clean package -DskipTests
+            cp target/product-order-1.0.0.jar application.jar
+
+        # 3) DEPLOY TO EB
+        - name: EB Deploy
+          run: |
+            cd Backend
+            eb init $AWS_EB_APP_NAME \
+              --region $AWS_REGION \
+              --platform "Corretto 17 running on 64bit Amazon Linux 2023"
+  
+            eb use $AWS_EB_ENV_NAME
+            eb deploy -nh

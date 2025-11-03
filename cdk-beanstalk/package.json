@@ -1,0 +1,22 @@
+{
+  "name": "cdk-beanstalk",
+  "version": "0.1.0",
+  "bin": {
+    "cdk-beanstalk": "bin/cdk-beanstalk.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "cdk": "cdk",
+    "watch": "tsc -w"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.137.0",
+    "constructs": "10.3.0",
+    "aws-sdk": "^2.1692.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "ts-node": "^10.9.2",
+    "@types/node": "^18.16.3"
+  }
+}
